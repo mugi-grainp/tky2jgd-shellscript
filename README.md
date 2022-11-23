@@ -10,7 +10,7 @@
 
 ## 国土地理院コンテンツ利用規約に基づく表示
 
-出典: 国土地理院ウェブサイト「TKY2JGD for Windowsダウンロード」 (https://www.gsi.go.jp/sokuchikijun/tky2jgd\_download.html)
+出典: 国土地理院ウェブサイト「TKY2JGD for Windowsダウンロード」 (https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html)
 
 本プログラムは，国土地理院公開「TKY2JGD」のVisual Basic 5.0ソースコードをもとに変換作成した．
 
@@ -23,12 +23,12 @@
 # 別途必要なデータファイル
 
 - 国土地理院配布の座標変換パラメータ・ファイル TKY2JGD.par
-    - https://www.gsi.go.jp/sokuchikijun/tky2jgd\_download.html
+    - https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html
     - 本スクリプトと同じディレクトリに配置すること．
 
 ## 参考サイト
 
-- 国土地理院 TKY2JGD for Windowsダウンロード https://www.gsi.go.jp/sokuchikijun/tky2jgd\_download.html
+- 国土地理院 TKY2JGD for Windowsダウンロード https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html
 - 国土地理院コンテンツ利用規約 https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html
 
 # プログラム利用法
