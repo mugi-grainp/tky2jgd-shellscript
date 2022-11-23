@@ -20,7 +20,7 @@
     - 国土地理院配布の座標変換パラメータ・ファイルを利用した測地系変換
 - プログラム変換にあたっては細心の注意を払って製作したが，誤りが存在する可能性がある．本プログラムを利用した場合のいかなる損害についても，プログラム変換者は責任を負わない．
 
-# 別途必要なデータファイル
+## 別途必要なデータファイル
 
 - 国土地理院配布の座標変換パラメータ・ファイル TKY2JGD.par
     - https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html
@@ -31,7 +31,7 @@
 - 国土地理院 TKY2JGD for Windowsダウンロード https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html
 - 国土地理院コンテンツ利用規約 https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html
 
-# プログラム利用法
+## プログラム利用法
 
 空白区切りのファイルの場合
 
