@@ -1,0 +1,310 @@
+#!/bin/bash
+
+# tky2jgd
+# 旧日本測地系 (Tokyo Datum) から，世界測地系の「日本測地系2011」 (JGD2011) に変換する．
+# 出典: 国土地理院ウェブサイト「TKY2JGD for Windowsダウンロード」 (https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html)
+# 国土地理院公開「TKY2JGD」のVisual Basic 5.0ソースコードをもとに変換
+# 元ソースコード公開ページ: https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html
+#
+# 元ソースコードのうち，下記の部分のみを変換作成し，それ以外の部分はこのプログラムに含まれない
+# ・国土地理院配布の座標変換パラメータ・ファイルを利用した測地系変換
+#
+# 別途必要なデータファイル
+# ・国土地理院配布の座標変換パラメータ・ファイル TKY2JGD.par
+#   (https://www.gsi.go.jp/sokuchikijun/tky2jgd_download.html)
+
+# プログラム利用法
+# $ tky2jgd < latitude_longitude_list.txt
+#
+# コマンドライン引数
+# -d, --delim=DELIM   フィールド区切りを設定する．デフォルトは空白
+#
+# 入力ファイルフォーマット
+# 緯度と経度（旧日本測地系）を区切り文字DELIMで記述
+#     33.59425 130.22374
+#     33.59417 130.22310
+#     33.59425 130.22105
+#     33.59369 130.21935
+#     33.59367 130.21927
+#
+# 出力フォーマット
+# 緯度と経度（旧日本測地系と日本測地系2011）を出力
+#     旧緯度   旧経度    新緯度   新経度
+#     33.59425 130.22374 33.59754 130.22143
+#     33.59417 130.22310 33.59745 130.22079
+#     33.59425 130.22105 33.59754 130.21874
+#     33.59369 130.21935 33.59698 130.21703
+#     33.59367 130.21927 33.59696 130.21696
+
+# 終了時処理
+on_exit() {
+    trap 1 2 3 15
+    rm ${tmp_prefix}-*
+    exit $1
+}
+trap 'on_exit 1' 1 2 3 15
+
+# 一時ファイル用プレフィクス
+tmp_prefix="/tmp/${0##*/}.$$"
+
+# ファイル下準備
+cat TKY2JGD.par |
+sed 's/  / /g'  |
+tr -d '\r'      > $tmp_prefix-tky2jgd-par
+
+# 入出力デリミタ設定
+delim=' '
+
+# コマンドライン解析
+OPTIONS=$(getopt -n $(basename $0) -o d: -- $@)
+eval set -- "$OPTIONS"
+while [ $# -gt 0 ]
+do
+    case $1 in
+        -d | --delim ) delim="$2" ;;
+        --) shift; break;;
+    esac
+    shift
+done
+
+# 必要であれば，緯度・経度表現方式の変換 (度・分・秒表示 → 度表示)
+# DDDMMSS.SSSS -> degree
+# awk '
+#     {
+#         # 度・分・秒を分離
+#         temp_latitude  = $1 / 10000.0
+#         temp_longitude = $2 / 10000.0
+#
+#         latitude_d  = int(temp_latitude)
+#         longitude_d = int(temp_longitude)
+#
+#         latitude_ms  = (temp_latitude - latitude_d) * 100
+#         longitude_ms = (temp_longitude - longitude_d) * 100
+#         latitude_m  = int(latitude_ms)
+#         longitude_m = int(longitude_ms)
+#
+#         latitude_s  = int((latitude_ms - latitude_m) * 100)
+#         longitude_s = int((longitude_ms - longitude_m) * 100)
+#
+#         latitude_degree  = latitude_d + (latitude_m + latitude_s / 60) / 60
+#         longitude_degree = longitude_d + (longitude_m + longitude_s / 60) / 60
+#
+#         print latitude_degree, longitude_degree
+#     }
+# ' |
+# 整数化された度数表示を補正
+awk -F "$delim" '
+    BEGIN { OFMT = "%.5f" }
+    {
+        print ($1 / 100000), ($2 / 100000)
+    }
+' |
+# パラメータファイルからパラメータを取り出して，Bilinear法により補完
+## 緯度・経度からメッシュコードを求める
+awk '
+    BEGIN { OFMT = "%.5f" }
+    {
+        # 1次メッシュコード
+        lat_mesh_1st = int($1 * 1.5)
+        lng_mesh_1st = int($2) - 100
+
+        # 2次メッシュコード
+        lat_mesh_2nd = int(8.0 * (1.5 * $1 - lat_mesh_1st))
+        lng_mesh_2nd = int(8.0 * ($2 - (lng_mesh_1st + 100)))
+
+        # 3次メッシュコード
+        lat_mesh_3rd = int(10 * (12 * $1 - 8 * lat_mesh_1st - lat_mesh_2nd))
+        lng_mesh_3rd = int(10 * (8 * ($2 - (lng_mesh_1st + 100)) - lng_mesh_2nd))
+
+        # 3次メッシュの左下（南西角）点から何度ずれているか
+        mod_lat = 120 * $1 - 80 * lat_mesh_1st - 10 * lat_mesh_2nd - lat_mesh_3rd
+        mod_lng = 80 * ($2 - (lng_mesh_1st + 100)) - 10 * lng_mesh_2nd - lng_mesh_3rd
+
+        # メッシュコード合成
+        latlng_mesh_1st = lat_mesh_1st * 100 + lng_mesh_1st
+        latlng_mesh_2nd = lat_mesh_2nd * 10 + lng_mesh_2nd
+        latlng_mesh_3rd = lat_mesh_3rd * 10 + lng_mesh_3rd
+
+        latlng_mesh_123 = latlng_mesh_1st * 10000 + latlng_mesh_2nd * 100 + latlng_mesh_3rd
+        latlng_mesh_str = sprintf("%04d-%02d-%02d", latlng_mesh_1st, latlng_mesh_2nd, latlng_mesh_3rd)
+
+        # 緯度・経度とともにメッシュコードと残りのずれを返す
+            print $1, $2, lat_mesh_1st, lng_mesh_1st, lat_mesh_2nd, lng_mesh_2nd, lat_mesh_3rd, lng_mesh_3rd, \
+                  latlng_mesh_1st, latlng_mesh_2nd, latlng_mesh_3rd, \
+                  latlng_mesh_123, latlng_mesh_str, mod_lat, mod_lng
+    }
+' |
+    # 1: 緯度, 2: 経度, 3: 1次メッシュコード(緯度), 4: 1次メッシュコード(経度),
+    # 5: 2次メッシュコード(緯度), 6: 2次メッシュコード(経度),
+    # 7: 3次メッシュコード(緯度), 8: 3次メッシュコード(経度),
+    # 9: 1次メッシュコード, 10: 2次メッシュコード, 11: 3次メッシュコード
+    # 12: メッシュコード, 13: メッシュコードの正式表現, 14: 残りのずれ(緯度), 15: 残りのずれ(経度)
+## 指定されたメッシュコードの東隣・北隣・北東隣のメッシュコードを求める
+awk '
+    BEGIN { OFMT = "%.5f" }
+    {
+        # 東隣のメッシュ
+        lat_mesh_1st_east = $3
+        lng_mesh_1st_east = $4
+        lat_mesh_2nd_east = $5
+        lng_mesh_2nd_east = $6
+        lat_mesh_3rd_east = $7
+        lng_mesh_3rd_east = $8
+
+        if ($8 < 9) { lng_mesh_3rd_east = $8 + 1 }
+        else {
+            lng_mesh_3rd_east = 0
+            if ($6 < 7) { lng_mesh_2nd_east = $6 + 1 }
+            else {
+                lng_mesh_2nd_east = 0
+                lng_mesh_1st_east = $4 + 1
+            }
+        }
+
+        # 東隣のメッシュコード生成
+        latlng_mesh_1st_east = lat_mesh_1st_east * 100 + lng_mesh_1st_east
+        latlng_mesh_2nd_east = lat_mesh_2nd_east * 10 + lng_mesh_2nd_east
+        latlng_mesh_3rd_east = lat_mesh_3rd_east * 10 + lng_mesh_3rd_east
+
+        latlng_mesh_123_east = latlng_mesh_1st_east * 10000 + latlng_mesh_2nd_east * 100 + latlng_mesh_3rd_east
+        latlng_mesh_str_east = sprintf("%04d-%02d-%02d", latlng_mesh_1st_east, latlng_mesh_2nd_east, latlng_mesh_3rd_east)
+
+        # 北隣のメッシュ
+        lat_mesh_1st_north = $3
+        lng_mesh_1st_north = $4
+        lat_mesh_2nd_north = $5
+        lng_mesh_2nd_north = $6
+        lat_mesh_3rd_north = $7
+        lng_mesh_3rd_north = $8
+
+        if ($7 < 9) { lat_mesh_3rd_north = $7 + 1 }
+        else {
+            lat_mesh_3rd_north = 0
+            if ($5 < 7) { lat_mesh_2nd_north = $5 + 1 }
+            else {
+                lat_mesh_2nd_north = 0
+                lat_mesh_1st_north = $3 + 1
+            }
+        }
+
+        # 北隣のメッシュコード生成
+        latlng_mesh_1st_north = lat_mesh_1st_north * 100 + lng_mesh_1st_north
+        latlng_mesh_2nd_north = lat_mesh_2nd_north * 10 + lng_mesh_2nd_north
+        latlng_mesh_3rd_north = lat_mesh_3rd_north * 10 + lng_mesh_3rd_north
+
+        latlng_mesh_123_north = latlng_mesh_1st_north * 10000 + latlng_mesh_2nd_north * 100 + latlng_mesh_3rd_north
+        latlng_mesh_str_north = sprintf("%04d-%02d-%02d", latlng_mesh_1st_north, latlng_mesh_2nd_north, latlng_mesh_3rd_north)
+
+        # 北東隣のメッシュ
+        lat_mesh_1st_northeast = $3
+        lng_mesh_1st_northeast = $4
+        lat_mesh_2nd_northeast = $5
+        lng_mesh_2nd_northeast = $6
+        lat_mesh_3rd_northeast = $7
+        lng_mesh_3rd_northeast = $8
+
+        if ($8 < 9) { lng_mesh_3rd_northeast = $8 + 1 }
+        else {
+            lng_mesh_3rd_northeast = 0
+            if ($6 < 7) { lng_mesh_2nd_northeast = $6 + 1 }
+            else {
+                lng_mesh_2nd_northeast = 0
+                lng_mesh_1st_northeast = $4 + 1
+            }
+        }
+
+        if ($7 < 9) { lat_mesh_3rd_northeast = $7 + 1 }
+        else {
+            lat_mesh_3rd_northeast = 0
+            if ($5 < 7) { lat_mesh_2nd_northeast = $5 + 1 }
+            else {
+                lat_mesh_2nd_northeast = 0
+                lat_mesh_1st_northeast = $3 + 1
+            }
+        }
+
+        # 北東隣のメッシュコード生成
+        latlng_mesh_1st_northeast = lat_mesh_1st_northeast * 100 + lng_mesh_1st_northeast
+        latlng_mesh_2nd_northeast = lat_mesh_2nd_northeast * 10 + lng_mesh_2nd_northeast
+        latlng_mesh_3rd_northeast = lat_mesh_3rd_northeast * 10 + lng_mesh_3rd_northeast
+
+        latlng_mesh_123_northeast = latlng_mesh_1st_northeast * 10000 + latlng_mesh_2nd_northeast * 100 + latlng_mesh_3rd_northeast
+        latlng_mesh_str_northeast = sprintf("%04d-%02d-%02d", latlng_mesh_1st_northeast, latlng_mesh_2nd_northeast, latlng_mesh_3rd_northeast)
+
+        # メッシュコードと余りを出力
+        print $1, $2, \
+            $12, latlng_mesh_123_north, latlng_mesh_123_east, latlng_mesh_123_northeast, \
+            $13, latlng_mesh_str_north, latlng_mesh_str_east, latlng_mesh_str_northeast, \
+            $14, $15
+    }
+'                           |
+tee $tmp_prefix-meshcodes   |
+
+# パラメータサーチ
+cut -d' ' -f3-6             |
+tr ' ' '\n'                 > $tmp_prefix-grep-list
+
+grep -f $tmp_prefix-grep-list $tmp_prefix-tky2jgd-par |
+LANG=C sort -s -t' ' -k1,1n                           > $tmp_prefix-param-list
+
+# Bilinear 補完 (dBとdLを得る)
+cat $tmp_prefix-meshcodes    |
+awk '
+    BEGIN { OFMT = "%.5f" }
+    {
+        print $1, $2, 1, $3
+        print $1, $2, 2, $4
+        print $1, $2, 3, $5
+        print $1, $2, 4, $6
+    }
+' |
+LANG=C sort -s -t' ' -k4,4n |
+join -t' ' -1 4 -2 1 -o 1.1 1.2 1.3 1.4 2.2 2.3 - $tmp_prefix-param-list |
+LANG=C sort -s -t' ' -k3,3n |
+# 1: 緯度, 2: 経度, 3: メッシュ位置, 4: メッシュコード, 5: dB, 6: dL
+# メッシュ位置→1: 元のメッシュ, 2: 北隣のメッシュ, 3: 東隣のメッシュ, 4: 北東隣のメッシュ
+awk '
+    BEGIN { OFMT = "%.5f" }
+    NR % 4 == 1 { dB_1 = $5; dL_1 = $6 }
+    NR % 4 == 2 { dB_2 = $5; dL_2 = $6 }
+    NR % 4 == 3 { dB_3 = $5; dL_3 = $6 }
+    NR % 4 == 0 {
+        dB_4 = $5; dL_4 = $6
+        print dB_1, dB_2, dB_3, dB_4, dL_1, dL_2, dL_3, dL_4
+    }
+' > $tmp_prefix-parameters-table
+
+# Bilinear 補完 (補完本体)
+paste -d' ' $tmp_prefix-meshcodes $tmp_prefix-parameters-table |
+cut -d' ' -f1,2,11,12,13-20                                    |
+# 1: 緯度, 2: 経度, 3: mod_lat, 4: mod_lng, 5-12: dB, dL
+awk '
+    BEGIN { OFMT = "%.5f" }
+    {
+        dB_a = $5
+        dB_B = $6 - $5
+        dB_C = $7 - $5
+        dB_D = $8 - $6 - $7 + $5
+        dB_Z = dB_a + dB_B * $4 + dB_C * $3 + dB_D * $3 * $4
+
+        dL_a = $9
+        dL_B = $10 - $9
+        dL_C = $11 - $9
+        dL_D = $12 - $10 - $11 + $9
+        dL_Z = dL_a + dL_B * $4 + dL_C * $3 + dL_D * $3 * $4
+
+        print $1, $2, dB_Z, dL_Z
+    }
+' |
+# 補完結果を加算して出力
+awk -v delim="$delim" '
+    BEGIN { OFS = delim; OFMT = "%.5f" }
+    {
+        latitude_jgd  = $1 + $3 / 3600
+        longitude_jgd = $2 + $4 / 3600
+
+        print $1, $2, latitude_jgd, longitude_jgd
+    }
+'
+
+on_exit 0
